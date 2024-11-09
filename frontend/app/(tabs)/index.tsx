@@ -1,83 +1,133 @@
-import {SafeAreaView, Image, StyleSheet, Text, TextInput, View, Button} from 'react-native';
+import {StyleSheet, Text, TextInput, View, Button, FlatList, Switch} from 'react-native';
 
-import React, {useState} from "react";
-import {SafeAreaProvider} from "react-native-safe-area-context";
-import ParallaxScrollView from "@/components/ParallaxScrollView";
-import {ThemedView} from "@/components/ThemedView";
-import axios, {AxiosError} from "axios";
-
-import Constants from "expo-constants";
-
-const { manifest2 } = Constants;
-
-console.log('TT', manifest2)
-
-const uri = `http://${'10.100.7.113'}:8085`;
+import React, {useEffect, useState} from "react";
+import {useNavigation} from "expo-router";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Ionicons from "@expo/vector-icons/Ionicons";
+import * as SecureStore from 'expo-secure-store';
 
 export default function HomeScreen() {
-  const [login, setLogin] =  useState('');
-  const [password, setPassword] =  useState('');
-  const [res, setResponse] = useState<string>();
+    const [note, setNote] = useState('');
+    const [notes, setNotes] = useState<string[]>([]);
+    const [encryptedNotes, setEncryptedNotes] = useState<string[]>([]);
+    const [encrypted, setEncrypted] = useState(false);
 
-  const handleSubmit = () => {
-      setResponse(undefined);
-      axios.post(`${uri}/secured/login`, {login, password})
-          .then((res)=>{
-              console.log('Logged user', res);
-              setResponse(JSON.stringify(res.data));
-          })
-          .catch((err: any)=>{
-              console.error('Error', JSON.stringify(err));
-              setResponse(err?.response?.data);
-          })
-  }
+    const navigation = useNavigation();
+
+    useEffect(() => {
+        const fetch = async () => {
+            const rawNotes= await AsyncStorage.getItem('unencrypted-notes');
+
+            if (!rawNotes) {
+                return
+            }
+
+            setNotes((buff)=>([...buff, ...JSON.parse(rawNotes)]));
+        }
+
+        fetch()
+            .catch(console.error)
+    }, []);
+
+    useEffect(() => {
+        const fetch = async () => {
+            const rawNotes= await SecureStore.getItemAsync('encrypted-notes', {
+                requireAuthentication: true
+            });
+
+            if (!rawNotes) {
+                return
+            }
+
+            setNotes((buff)=>([...buff,...JSON.parse(rawNotes)]))
+        }
+
+        fetch()
+            .catch(console.error)
+    }, []);
+
+    const addNote = async () => {
+       try {
+           if (!note.trim()) {
+               return;
+           }
+
+           setNote('');
+
+           if (encrypted) {
+               const mergedNotes = [...encryptedNotes, note]
+               setEncryptedNotes(mergedNotes);
+               console.log('TEST');
+               await SecureStore.setItemAsync('encrypted-notes', JSON.stringify(mergedNotes), {
+                   requireAuthentication: true
+               });
+
+               return;
+           }
+
+           const mergedNotes = [...notes, note]
+           setNotes(mergedNotes);
+
+           await AsyncStorage.setItem('unencrypted-notes', JSON.stringify(mergedNotes));
+       } catch (e) {
+           console.error('Error',e)
+       }
+    };
 
     return (
-        <ParallaxScrollView
-            headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-            headerImage={
-                <Image
-                    source={require('@/assets/images/partial-react-logo.png')}
-                    style={styles.reactLogo}
+        <View style={styles.container}>
+            <Ionicons name="arrow-back" size={24} color="black" onPress={() => navigation.goBack()}/>
+            <Text style={styles.title}>Notatki</Text>
+
+            <TextInput
+                style={styles.input}
+                placeholder="Wpisz swoją notatkę..."
+                value={note}
+                onChangeText={setNote}
+            />
+            <View style={styles.switchContainer}>
+                <Text>Czy zaszyfrować notatkę?</Text>
+                <Switch
+                    value={encrypted}
+                    onValueChange={()=>setEncrypted(!encrypted)}
                 />
-            }>
-            <ThemedView style={styles.titleContainer}>
-                <View>
-                    {res && (
-                        <Text>
-                            {res}
-                        </Text>
-                    )}
-                    <Text>
-                        Login
-                    </Text>
-                    <TextInput value={login} onChangeText={setLogin} style={{borderWidth: 1, borderStyle: 'solid'}} />
-                    <Text>
-                        Password
-                    </Text>
-                    <TextInput value={password} onChangeText={setPassword} style={{borderWidth: 1, borderStyle: 'solid'}} />
-                    <Button title={'Login'} onPress={handleSubmit}/>
-                </View>
-            </ThemedView>
-        </ParallaxScrollView>
-  );
+            </View>
+            <Button title="Dodaj notatkę" onPress={addNote}/>
+            <FlatList
+                data={[...notes, ...encryptedNotes]}
+                keyExtractor={(item, index) => index.toString()}
+                renderItem={({item}) => <Text style={styles.note}>{item}</Text>}
+            />
+        </View>
+    );
 }
 
 const styles = StyleSheet.create({
-    titleContainer: {
+    container: {
+        flex: 1,
+        padding: 16,
+        backgroundColor: '#fff',
+    },
+    title: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        marginBottom: 16,
+    },
+    switchContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-    gap: 8,
-  },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
+        marginBottom: 8,
+    },
+    input: {
+        borderWidth: 1,
+        borderColor: '#ccc',
+        padding: 8,
+        marginBottom: 8,
+        borderRadius: 4,
+    },
+    note: {
+        padding: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: '#ddd',
+    },
 });
